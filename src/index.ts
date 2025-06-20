@@ -13,7 +13,7 @@ export default defineHook(({ filter }, { services, logger }) => {
 			logger.info(`Working with userInfo: ${JSON.stringify(meta.providerPayload.userInfo)}`)
 			if (!meta.providerPayload.userInfo) throw new Error('User info is required');
 
-			const rawRole: string = meta.providerPayload.userInfo['organization_roles.0'];
+			const rawRole: string = meta.providerPayload.userInfo.organization_roles['0'] ?? meta.providerPayload.userInfo['organization_roles']['0'] ?? null;
 			logger.info("Raw role from userInfo:", rawRole);
 			if (!rawRole) throw new Error('Role not found in userInfo');
 
