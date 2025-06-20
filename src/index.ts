@@ -18,11 +18,11 @@ export default defineHook(({ filter }, { services, logger }) => {
 			const rawRole: string = meta.providerPayload.userInfo['organization_roles.0'] ?? 
 									meta.providerPayload.userInfo.organization_roles?.[0] ?? 
 									null;
-			logger.info("Raw role from userInfo:", rawRole);
+			logger.info(`Raw role from userInfo: ${rawRole}`);
 			if (!rawRole) throw new Error('Role not found in userInfo');
 
 			const roleName = rawRole.split(":")[1]?.trim();
-			logger.info("Role name found:", roleName);
+			logger.info(`Role name parsed: ${roleName}`);
 			if (!roleName) throw new Error('Role name could not be extracted');
 
 			const query: Query = {
@@ -38,6 +38,8 @@ export default defineHook(({ filter }, { services, logger }) => {
 				logger.error(`Role not found for name: ${roleName}`);
 				throw new Error(`Role not found for name: ${roleName}`);
 			}
+
+			logger.info(`Role fetched: ${JSON.stringify(role)}`);
 
 			const name: string = meta.providerPayload.userInfo['name'];
 
