@@ -3,8 +3,9 @@ import { FilterHandler, Query, Role } from '@directus/types';
 
 export default defineHook(({ filter }, { services, logger }) => {
 	const handler: FilterHandler<any> = async (payload, meta, context) => {
-		logger.info(`Filter handler executed: ${JSON.stringify(payload)}`);
-		logger.info(`Filter handler executed: ${JSON.stringify(meta)}`);
+		logger.info("Filter handler executed")
+		logger.info(`Value of payload: ${JSON.stringify(payload)}`);
+		logger.info(`Value of meta: ${JSON.stringify(meta)}`);
 		const { database, schema } = context;
 		const { RolesService } = services;
 		const rolesService = new RolesService({ schema, knex: database});
@@ -13,7 +14,10 @@ export default defineHook(({ filter }, { services, logger }) => {
 			logger.info(`Working with userInfo: ${JSON.stringify(meta.providerPayload.userInfo)}`)
 			if (!meta.providerPayload.userInfo) throw new Error('User info is required');
 
-			const rawRole: string = meta.providerPayload.userInfo.organization_roles['0'] ?? meta.providerPayload.userInfo['organization_roles']['0'] ?? null;
+			// El campo organization_roles viene aplanado como "organization_roles.0"
+			const rawRole: string = meta.providerPayload.userInfo['organization_roles.0'] ?? 
+									meta.providerPayload.userInfo.organization_roles?.[0] ?? 
+									null;
 			logger.info("Raw role from userInfo:", rawRole);
 			if (!rawRole) throw new Error('Role not found in userInfo');
 
