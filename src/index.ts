@@ -10,10 +10,10 @@ export default defineHook(({ filter }, { services, logger }) => {
 		const rolesService = new RolesService({ schema, knex: database});
 
 		try {
-			logger.info(`Working with userInfo: ${JSON.stringify(meta.userInfo)}`)
-			if (!meta.userInfo) throw new Error('User info is required');
+			logger.info(`Working with userInfo: ${JSON.stringify(meta.providerPayload.userInfo)}`)
+			if (!meta.providerPayload.userInfo) throw new Error('User info is required');
 
-			const rawRole: string = meta.userInfo['organization_roles.0'];
+			const rawRole: string = meta.providerPayload.userInfo['organization_roles.0'];
 			logger.info("Raw role from userInfo:", rawRole);
 			if (!rawRole) throw new Error('Role not found in userInfo');
 
@@ -35,7 +35,7 @@ export default defineHook(({ filter }, { services, logger }) => {
 				throw new Error(`Role not found for name: ${roleName}`);
 			}
 
-			const name: string = meta.userInfo['name'];
+			const name: string = meta.providerPayload.userInfo['name'];
 
 			return {
 				...payload,
