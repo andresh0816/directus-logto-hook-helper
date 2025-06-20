@@ -4,6 +4,7 @@ import { FilterHandler, Query, Role } from '@directus/types';
 export default defineHook(({ filter }, { services, logger }) => {
 	const handler: FilterHandler<any> = async (payload, meta, context) => {
 		logger.info(`Filter handler executed: ${JSON.stringify(payload)}`);
+		logger.info(`Filter handler executed: ${JSON.stringify(meta)}`);
 		const { database, schema } = context;
 		const { RolesService } = services;
 		const rolesService = new RolesService({ schema, knex: database});
