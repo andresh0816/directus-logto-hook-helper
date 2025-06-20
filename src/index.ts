@@ -32,9 +32,9 @@ export default defineHook(({ filter }, { services, logger }) => {
 					}
 				}
 			}
-			const role: Role = await rolesService.readByQuery(query);
+			const role: Role[] = await rolesService.readByQuery(query);
 
-			if (!role) {
+			if (role.length === 0) {
 				logger.error(`Role not found for name: ${roleName}`);
 				throw new Error(`Role not found for name: ${roleName}`);
 			}
@@ -45,7 +45,7 @@ export default defineHook(({ filter }, { services, logger }) => {
 
 			return {
 				...payload,
-				role: role.id,
+				role: role[0]?.id,
 				first_name: name.split(" ")[0] || null,
 				last_name: name.split(" ")[1] || null,
 				external_indentifier: meta.identifier
