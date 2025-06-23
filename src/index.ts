@@ -1,7 +1,11 @@
+import { createError } from '@directus/errors';
 import { defineHook } from '@directus/extensions-sdk';
 import { FilterHandler, Query, Role } from '@directus/types';
 
-export default defineHook(({ filter }, { services, logger }) => {
+const identificationNullError = createError("IDENTIFICATION_NULL", "The idenfification field is required. Please contact support", 400);
+const wrongOrganizationError = createError("WRONG_ORGANIZATION", "The current user does not belong to this organization.", 403);
+
+export default defineHook(({ filter }, { services, logger, env }) => {
 	const handler: FilterHandler<any> = async (payload, meta, context) => {
 		logger.info("Filter handler executed")
 		logger.info(`Value of payload: ${JSON.stringify(payload)}`);
@@ -9,8 +13,28 @@ export default defineHook(({ filter }, { services, logger }) => {
 		const { database, schema } = context;
 		const { RolesService } = services;
 		const rolesService = new RolesService({ schema, knex: database});
+		const organizationId = env['BYTARS_ORGANIZATION_ID']
+
+		if (!organizationId) {
+			logger.error('BYTARS_ORGANIZATION_ID environment variable is not set');
+			throw new Error('BYTARS_ORGANIZATION_ID environment variable is not set');
+		}
 
 		try {
+			logger.info('Checking the user organization');
+			const userOrganizationId = meta.providerPayload.userInfo['organization_data.0.id']
+			logger.info(`User organization ID: ${userOrganizationId}`);
+
+			if (!userOrganizationId) {
+				logger.error('Provider payload does not contain organization data');
+				throw new Error('Provider payload does not contain organization data');
+			}
+
+			if (userOrganizationId !== organizationId) {
+				logger.error(`User does not belong to the organization with ID: ${organizationId}`);
+				throw new wrongOrganizationError();
+			}
+
 			logger.info(`Working with userInfo: ${JSON.stringify(meta.providerPayload.userInfo)}`)
 			if (!meta.providerPayload.userInfo) throw new Error('User info is required');
 
@@ -42,6 +66,11 @@ export default defineHook(({ filter }, { services, logger }) => {
 			logger.info(`Role fetched: ${JSON.stringify(role)}`);
 
 			const name: string = meta.providerPayload.userInfo['name'];
+			const identification: string | null = meta.providerPayload.userInfo['custom_data.identification'];
+
+			if (!identification || identification === "") {
+				throw new identificationNullError();
+			}
 
 			return {
 				...payload,

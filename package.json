@@ -28,5 +28,8 @@
 		"@directus/extensions-sdk": "13.1.1",
 		"@types/node": "^24.0.3",
 		"typescript": "^5.8.3"
+	},
+	"dependencies": {
+		"@directus/errors": "^2.0.1"
 	}
 }
