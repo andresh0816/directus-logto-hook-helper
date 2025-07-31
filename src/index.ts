@@ -56,7 +56,7 @@ export default defineHook(({ filter }, { services, logger, env }) => {
 
 		// Mapear el role especificamente para Bytars School
 		const roleKeys = Object.keys(userInfo).filter(key => key.startsWith('organization_roles.'));
-		var rawRole: string = roleKeys
+		var rawRole = roleKeys
 			.map(key => userInfo[key])
 			.find((role: string) => {
 				const [orgId, roleName] = role.split(":");
