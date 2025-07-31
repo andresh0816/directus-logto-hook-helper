@@ -3,7 +3,9 @@ import { defineHook } from '@directus/extensions-sdk';
 import { FilterHandler, Query, Role } from '@directus/types';
 
 const identificationNullError = createError("IDENTIFICATION_NULL", "The idenfification field is required. Please contact support", 400);
+const userInfoNullError = createError("USER_INFO_NULL", "The user info is required. Please contact support", 500);
 const wrongOrganizationError = createError("WRONG_ORGANIZATION", "The current user does not belong to this organization.", 403);
+const userHasNoRoleError = createError("USER_HAS_NO_ROLE", "The user does not have a role assigned. Please contact support", 400);
 
 export default defineHook(({ filter }, { services, logger, env }) => {
 	const handler: FilterHandler<any> = async (payload, meta, context) => {
@@ -20,29 +22,37 @@ export default defineHook(({ filter }, { services, logger, env }) => {
 			logger.error('BYTARS_ORGANIZATION_ID environment variable is not set');
 			throw new Error('BYTARS_ORGANIZATION_ID environment variable is not set');
 		}
-		logger.info('Checking the user organization');
-		const userOrganizationId = meta.providerPayload.userInfo['organization_data.0.id']
-		logger.info(`User organization ID: ${userOrganizationId}`);
 
-		if (!userOrganizationId) {
-			logger.error('Provider payload does not contain organization data');
-			throw new Error('Provider payload does not contain organization data');
+		if (!meta.providerPayload.userInfo) {
+			logger.error('Provider payload does not contain user info');
+			throw new userInfoNullError();
 		}
 
-		if (userOrganizationId !== organizationId) {
+		logger.info('Checking the user organization');
+
+		let userOrgIndex = -1;
+		const userInfo = meta.providerPayload.userInfo;
+
+		const organizationsKeys = Object.keys(userInfo).filter(key => key.startsWith('organizations.'));
+		const orgKey = organizationsKeys.find(key => userInfo[key] === organizationId);
+
+		if (organizationsKeys.length === 0 || !orgKey) {
 			logger.error(`User does not belong to the organization with ID: ${organizationId}`);
 			throw new wrongOrganizationError();
 		}
 
-		logger.info(`Working with userInfo: ${JSON.stringify(meta.providerPayload.userInfo)}`)
-		if (!meta.providerPayload.userInfo) throw new Error('User info is required');
+		userOrgIndex = Number(orgKey.split('.')[1]);
+		
+		if (userOrgIndex < 0) {
+			logger.error(`Invalid user organization index: ${userOrgIndex}`);
+			throw new Error(`Invalid user organization index: ${userOrgIndex}`);
+		}
 
-		// El campo organization_roles viene aplanado como "organization_roles.0"
-		const rawRole: string = meta.providerPayload.userInfo['organization_roles.0'] ?? 
-								meta.providerPayload.userInfo.organization_roles?.[0] ?? 
-								null;
+		// Obtener el rol correspondiente usando el mismo índice
+		const roleKey = `organization_roles.${userOrgIndex}`;
+		const rawRole: string = userInfo[roleKey] ?? null;
 		logger.info(`Raw role from userInfo: ${rawRole}`);
-		if (!rawRole) throw new Error('Role not found in userInfo');
+		if (!rawRole) throw new userHasNoRoleError();
 
 		const roleName = rawRole.split(":")[1]?.trim();
 		logger.info(`Role name parsed: ${roleName}`);
