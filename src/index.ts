@@ -6,6 +6,12 @@ const identificationNullError = createError("IDENTIFICATION_NULL", "The idenfifi
 const userInfoNullError = createError("USER_INFO_NULL", "The user info is required. Please contact support", 500);
 const wrongOrganizationError = createError("WRONG_ORGANIZATION", "The current user does not belong to this organization.", 403);
 const userHasNoRoleError = createError("USER_HAS_NO_ROLE", "The user does not have a role assigned. Please contact support", 400);
+const roleNotFoundError = createError("ROLE_NOT_FOUND", "The role could not be found. Please contact support", 404);
+
+enum BytarsRole {
+	Client = "Client",
+	Admin = "Admin"
+}
 
 export default defineHook(({ filter }, { services, logger, env }) => {
 	const handler: FilterHandler<any> = async (payload, meta, context) => {
@@ -37,7 +43,7 @@ export default defineHook(({ filter }, { services, logger, env }) => {
 		const orgKey = organizationsKeys.find(key => userInfo[key] === organizationId);
 
 		if (organizationsKeys.length === 0 || !orgKey) {
-			logger.error(`User does not belong to the organization with ID: ${organizationId}`);
+			logger.error(`User does not belong to this organization: ${organizationId}`);
 			throw new wrongOrganizationError();
 		}
 
@@ -48,15 +54,39 @@ export default defineHook(({ filter }, { services, logger, env }) => {
 			throw new Error(`Invalid user organization index: ${userOrgIndex}`);
 		}
 
-		// Obtener el rol correspondiente usando el mismo índice
-		const roleKey = `organization_roles.${userOrgIndex}`;
-		const rawRole: string = userInfo[roleKey] ?? null;
-		logger.info(`Raw role from userInfo: ${rawRole}`);
-		if (!rawRole) throw new userHasNoRoleError();
+		// Mapear el role especificamente para Bytars School
+		const roleKeys = Object.keys(userInfo).filter(key => key.startsWith('organization_roles.'));
+		var rawRole: string = roleKeys
+			.map(key => userInfo[key])
+			.find((role: string) => {
+				const [orgId, roleName] = role.split(":");
+				return orgId === organizationId && roleName?.startsWith('school_');
+			}) ?? null;
 
-		const roleName = rawRole.split(":")[1]?.trim();
+		// Obtener el rol correspondiente usando el mismo índice
+		logger.info(`Raw role from userInfo: ${rawRole}`);
+		if (!rawRole) {
+			const roles: string[] = userInfo['roles'] ?? [];
+			if (roles.length === 0) {
+				throw new userHasNoRoleError();
+			}
+
+			const bytarsAccountsType = [BytarsRole.Client, BytarsRole.Admin];
+			const internalRole = roles.find(role => bytarsAccountsType.includes(role as BytarsRole));
+
+			if (!internalRole) {
+				logger.error('User does not have bytars role assigned or any role assigned');
+				throw new userHasNoRoleError();
+			}
+
+			rawRole = internalRole;
+		}
+
+		const bytarsRoleName: string = rawRole.split(":")[1]?.trim() ?? "";
+		const parsedName: string = bytarsRoleName?.split("_")[1] ?? "";
+		const roleName = parsedName ? parsedName.charAt(0).toUpperCase() + parsedName.slice(1) : '';
 		logger.info(`Role name parsed: ${roleName}`);
-		if (!roleName) throw new Error('Role name could not be extracted');
+		if (!roleName || roleName === "") throw new Error('Role name could not be extracted');
 
 		const query: Query = {
 			filter: {
@@ -69,7 +99,7 @@ export default defineHook(({ filter }, { services, logger, env }) => {
 
 		if (role.length === 0) {
 			logger.error(`Role not found for name: ${roleName}`);
-			throw new Error(`Role not found for name: ${roleName}`);
+			throw new roleNotFoundError();
 		}
 
 		logger.info(`Role fetched: ${JSON.stringify(role)}`);
