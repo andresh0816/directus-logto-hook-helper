@@ -14,65 +14,78 @@ enum BytarsRole {
 }
 
 export default defineHook(({ filter }, { services, logger, env }) => {
+	// Cache organization ID to avoid repeated environment variable access
+	const organizationId = env['BYTARS_ORGANIZATION_ID'];
+	const bytarsAccountsType = [BytarsRole.Client, BytarsRole.Admin];
+
+	// Pre-validate environment configuration
+	if (!organizationId) {
+		logger.error('BYTARS_ORGANIZATION_ID environment variable is not set');
+		throw new Error('BYTARS_ORGANIZATION_ID environment variable is not set');
+	}
+
 	const handler: FilterHandler<any> = async (payload, meta, context) => {
-		logger.info("Filter handler executed")
-		logger.info(`Value of payload: ${JSON.stringify(payload)}`);
-		logger.info(`Value of meta: ${JSON.stringify(meta)}`);
-		const { database, schema } = context;
-		const { RolesService } = services;
-		const rolesService = new RolesService({ schema, knex: database});
-		const organizationId = env['BYTARS_ORGANIZATION_ID']
-		logger.info(`Organization ID from environment: ${organizationId}`);
-
-		if (!organizationId) {
-			logger.error('BYTARS_ORGANIZATION_ID environment variable is not set');
-			throw new Error('BYTARS_ORGANIZATION_ID environment variable is not set');
-		}
-
-		if (!meta.providerPayload.userInfo) {
+		logger.info("Filter handler executed");
+		
+		// Early validation of required data
+		const userInfo = meta?.providerPayload?.userInfo;
+		if (!userInfo) {
 			logger.error('Provider payload does not contain user info');
 			throw new userInfoNullError();
 		}
 
-		logger.info('Checking the user organization');
+		// Validate user belongs to organization (optimized with single pass)
+		const organizationKey = Object.keys(userInfo).find(key => 
+			key.startsWith('organizations.') && userInfo[key] === organizationId
+		);
 
-		let userOrgIndex = -1;
-		const userInfo = meta.providerPayload.userInfo;
-
-		const organizationsKeys = Object.keys(userInfo).filter(key => key.startsWith('organizations.'));
-		const orgKey = organizationsKeys.find(key => userInfo[key] === organizationId);
-
-		if (organizationsKeys.length === 0 || !orgKey) {
+		if (!organizationKey) {
 			logger.error(`User does not belong to this organization: ${organizationId}`);
 			throw new wrongOrganizationError();
 		}
 
-		userOrgIndex = Number(orgKey.split('.')[1]);
-		
+		// Extract organization index efficiently
+		const userOrgIndex = Number(organizationKey.split('.')[1]);
 		if (userOrgIndex < 0) {
 			logger.error(`Invalid user organization index: ${userOrgIndex}`);
 			throw new Error(`Invalid user organization index: ${userOrgIndex}`);
 		}
 
-		// Mapear el role especificamente para Bytars School
-		const roleKeys = Object.keys(userInfo).filter(key => key.startsWith('organization_roles.'));
-		var rawRole = roleKeys
-			.map(key => userInfo[key])
-			.find((role: string) => {
-				const [orgId, roleName] = role.split(":");
-				return orgId === organizationId && roleName?.startsWith('school_');
-			}) ?? null;
+		// Find organization role efficiently with single pass
+		let rawRole: string | null = null;
+		
+		// Look for school-specific role first
+		for (const key of Object.keys(userInfo)) {
+			if (key.startsWith('organization_roles.')) {
+				const roleValue = userInfo[key];
+				if (typeof roleValue === 'string') {
+					const [orgId, roleName] = roleValue.split(":");
+					if (orgId === organizationId && roleName?.startsWith('school_')) {
+						rawRole = roleValue;
+						break;
+					}
+				}
+			}
+		}
 
-		// Obtener el rol correspondiente usando el mismo índice
-		logger.info(`Raw role from userInfo: ${rawRole}`);
+		// Fallback to internal roles if no organization role found
 		if (!rawRole) {
-			const roles: string[] = userInfo['roles'] ?? [];
-			if (roles.length === 0) {
+			// Extract roles from destructured format (roles.0, roles.1, etc.)
+			const roleKeys = Object.keys(userInfo).filter(key => key.startsWith('roles.'));
+			
+			if (roleKeys.length === 0) {
 				throw new userHasNoRoleError();
 			}
 
-			const bytarsAccountsType = [BytarsRole.Client, BytarsRole.Admin];
-			const internalRole = roles.find(role => bytarsAccountsType.includes(role as BytarsRole));
+			// Find internal role from destructured roles
+			let internalRole: string | null = null;
+			for (const roleKey of roleKeys) {
+				const roleValue = userInfo[roleKey];
+				if (typeof roleValue === 'string' && bytarsAccountsType.includes(roleValue as BytarsRole)) {
+					internalRole = roleValue;
+					break;
+				}
+			}
 
 			if (!internalRole) {
 				logger.error('User does not have bytars role assigned or any role assigned');
@@ -82,19 +95,30 @@ export default defineHook(({ filter }, { services, logger, env }) => {
 			rawRole = internalRole;
 		}
 
-		const bytarsRoleName: string = rawRole.split(":")[1]?.trim() ?? "";
-		const parsedName: string = bytarsRoleName?.split("_")[1] ?? "";
-		const roleName = parsedName ? parsedName.charAt(0).toUpperCase() + parsedName.slice(1) : '';
-		logger.info(`Role name parsed: ${roleName}`);
-		if (!roleName || roleName === "") throw new Error('Role name could not be extracted');
+		logger.info(`Raw role from userInfo: ${rawRole}`);
 
+		// Parse role name efficiently
+		const roleParts = rawRole.split(":");
+		const bytarsRoleName = roleParts[1]?.trim() ?? rawRole; // Handle both org roles and internal roles
+		const parsedName = bytarsRoleName.includes("_") ? bytarsRoleName.split("_")[1] : bytarsRoleName;
+		const roleName = parsedName ? parsedName.charAt(0).toUpperCase() + parsedName.slice(1) : '';
+		
+		logger.info(`Role name parsed: ${roleName}`);
+		if (!roleName) {
+			throw new Error('Role name could not be extracted');
+		}
+
+		// Initialize services efficiently
+		const { database, schema } = context;
+		const { RolesService } = services;
+		const rolesService = new RolesService({ schema, knex: database });
+
+		// Query role by name
 		const query: Query = {
 			filter: {
-				name: {
-					_eq: roleName
-				}
+				name: { _eq: roleName }
 			}
-		}
+		};
 		const role: Role[] = await rolesService.readByQuery(query);
 
 		if (role.length === 0) {
@@ -104,22 +128,26 @@ export default defineHook(({ filter }, { services, logger, env }) => {
 
 		logger.info(`Role fetched: ${JSON.stringify(role)}`);
 
-		const name: string = meta.providerPayload.userInfo['name'];
-		const identification: string | null = meta.providerPayload.userInfo['custom_data.identification'];
+		// Extract user data efficiently
+		const name: string = userInfo['name'];
+		const identification: string | null = userInfo['custom_data.identification'];
 
-		if (!identification || identification === "") {
+		if (!identification) {
 			throw new identificationNullError();
 		}
 
+		// Split name efficiently
+		const nameParts = name.split(" ");
+		
 		return {
 			...payload,
 			role: role[0]?.id,
-			first_name: name.split(" ")[0] || null,
-			last_name: name.split(" ")[1] || null,
+			first_name: nameParts[0] || null,
+			last_name: nameParts[1] || null,
 			external_indentifier: meta.identifier,
 			identification: identification
-		}
-	}
+		};
+	};
 
 	filter("auth.create", handler);
 	filter("auth.update", handler);
